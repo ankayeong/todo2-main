@@ -1,10 +1,6 @@
 import mongoose from "mongoose";
 
-const { MONGO_URI } = process.env;
-
-if (!MONGO_URI) {
-  throw new Error("MONGO_URI 환경 변수가 설정되어 있지 않습니다.");
-}
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 
 declare global {
   var mongooseConnection: { conn: typeof mongoose | null; promise: Promise<typeof mongoose> | null } | undefined;
@@ -17,6 +13,12 @@ if (!cached) {
 }
 
 export async function connectMongo() {
+  if (!MONGO_URI) {
+    throw new Error(
+      "MongoDB 연결 정보가 설정되어 있지 않습니다. MONGO_URI 또는 MONGODB_URI 환경 변수를 확인해주세요."
+    );
+  }
+  
   if (cached?.conn) {
     return cached.conn;
   }
