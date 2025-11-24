@@ -53,15 +53,25 @@ export default function CalendarPage() {
     if (!isLoaded || !isSignedIn || !userId) return;
 
     fetch(`/api/todos/${userId}`)
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (!res.ok) {
+          const message = await res.text();
+          throw new Error(message || "이번 달 할 일을 불러오는 데 실패했습니다.");
+        }
+        return res.json();
+      })
       .then((all: Todo[]) => {
         const map: Record<string, number> = {};
-        all.forEach((t) => {
+        (Array.isArray(all) ? all : []).forEach((t) => {
           if (t.createdAt?.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`)) {
             map[t.createdAt] = (map[t.createdAt] || 0) + 1;
           }
         });
         setMonthlyTasks(map);
+      })
+      .catch((err) => {
+        console.error("Error fetching monthly todos:", err);
+        setMonthlyTasks({});
       });
   }, [isLoaded, isSignedIn, userId, viewDate, year, month]);
 
@@ -70,8 +80,18 @@ export default function CalendarPage() {
     if (!isLoaded || !isSignedIn || !userId) return;
 
     fetch(`/api/todos/by-date?userId=${userId}&date=${selectDateString}`)
-      .then((res) => res.json())
-      .then((data: Todo[]) => setTasks(sortTodosByDate(data)));
+      .then(async (res) => {
+        if (!res.ok) {
+          const message = await res.text();
+          throw new Error(message || "선택한 날짜의 할 일을 불러오는 데 실패했습니다.");
+        }
+        return res.json();
+      })
+      .then((data: Todo[]) => setTasks(sortTodosByDate(Array.isArray(data) ? data : [])))
+      .catch((err) => {
+        console.error("Error fetching todos by date:", err);
+        setTasks([]);
+      });
   }, [isLoaded, isSignedIn, selectDateString, selectedDate, userId]);
 
   const addTask = () => {

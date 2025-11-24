@@ -66,7 +66,10 @@ export default function FriendCalendarPage({
 
     fetch(`/api/friends/${id}?userId=${userId}`)
       .then(async (res) => {
-        if (!res.ok) throw new Error("친구 정보가 없습니다.");
+        if (!res.ok) {
+          const message = await res.text();
+          throw new Error(message || "친구 정보를 불러오지 못했습니다.");
+        }
         return res.json();
       })
       .then((data: FriendDetail) => {
@@ -74,6 +77,7 @@ export default function FriendCalendarPage({
       })
       .catch((err) => {
         console.error(err);
+        setFriend(null);
       })
       .finally(() => setLoading(false));
   }, [isLoaded, isSignedIn, userId, id]); //params.id 대신 id 사용
@@ -85,9 +89,18 @@ export default function FriendCalendarPage({
     const dateStr = getDateString(selectedDate);
 
     fetch(`/api/todos/by-date?userId=${friend.friendId}&date=${dateStr}`)
-      .then((res) => res.json())
-      .then((data: Todo[]) => setTasks(sortTodosByDate(data)))
-      .catch((err) => console.error("친구 투두 불러오기 실패:", err));
+      .then(async (res) => {
+        if (!res.ok) {
+          const message = await res.text();
+          throw new Error(message || "친구 할 일을 불러오지 못했습니다.");
+        }
+        return res.json();
+      })
+      .then((data: Todo[]) => setTasks(sortTodosByDate(Array.isArray(data) ? data : [])))
+      .catch((err) => {
+        console.error("친구 투두 불러오기 실패:", err);
+        setTasks([]);
+      });
   }, [friend, selectedDate]);
 
   if (!isLoaded || loading) {

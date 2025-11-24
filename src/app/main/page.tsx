@@ -48,9 +48,18 @@ export default function MainPage() {
     if (!isLoaded || !isSignedIn || !userId) return;
 
     fetch(`/api/todos/by-date?userId=${userId}&date=${todayKey}`)
-      .then((res) => res.json())
-      .then((data: Todo[]) => setTasks(sortTodosByDate(data)))
-      .catch((err) => console.error("Error fetching todos:", err));
+      .then(async (res) => {
+        if (!res.ok) {
+          const message = await res.text();
+          throw new Error(message || "오늘의 할 일을 불러오는 데 실패했습니다.");
+        }
+        return res.json();
+      })
+      .then((data: Todo[]) => setTasks(sortTodosByDate(Array.isArray(data) ? data : [])))
+      .catch((err) => {
+        console.error("Error fetching todos:", err);
+        setTasks([]);
+      });
   }, [isLoaded, isSignedIn, todayKey, userId]);
 
   // 로딩 화면

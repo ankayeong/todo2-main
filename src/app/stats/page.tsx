@@ -33,12 +33,22 @@ export default function StatsPage() {
     if (!isLoaded || !isSignedIn || !userId) return;
 
     fetch(`/api/todos/stats/monthly?userId=${userId}`)
-      .then((res) => res.json())
-      .then((stats) => {
-        setData(stats);
+      .then(async (res) => {
+        if (!res.ok) {
+          const message = await res.text();
+          throw new Error(message || "월별 통계를 불러오지 못했습니다.");
+        }
+        return res.json();
+      })
+      .then((stats: MonthlyStat[]) => {
+        setData(Array.isArray(stats) ? stats : []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        console.error("통계 조회 실패:", err);
+        setData([]);
+        setLoading(false);
+      });
   }, [isLoaded, isSignedIn, userId]);
 
   if (!isLoaded || loading) {
