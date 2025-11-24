@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+:root { /*문서의 최상위 요소(html), 여기서 변수 선언하면 모든 곳에서 쓸 수 있음*/
+  --background: #ffffff; /*CSS 커스텀 변수: 이름 앞에 -- 붙음*/
+  --foreground: #171717; /*글자색*/
+}
+
+/*
+@theme inline { CSS변수와 Tailwind 클래스를 연결해주는 다리
+  --color-background: var(--background); 변수 안에 들어있는 값 가져와서 적용. 즉, #ffffff를 적용한단 뜻임
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+*/
+/*
+변수를 만들 때 → --이름: 값;
+변수를 쓸 때 → var(--이름)
+*/
+
+@media (prefers-color-scheme: dark) { 
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
