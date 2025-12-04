@@ -6,7 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 
 interface FriendDetail {
   _id: string;
-  friendId: string;  
+  friendId: string;
   friendName: string;
 }
 
@@ -24,25 +24,20 @@ export default function FriendCalendarPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  // Next.js 15: unwrap params
   const { id } = React.use(params);
-
   const { isLoaded, isSignedIn, userId } = useAuth();
 
   const [friend, setFriend] = useState<FriendDetail | null>(null);
-  const [tasks, setTasks] = useState<Todo[]>([]);
   const [viewDate, setViewDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [monthlyTasks, setMonthlyTasks] = useState<
+    Record<string, { total: number; completed: number }>
+  >({});
+  const [tasks, setTasks] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
-  const firstDayOfMonth = new Date(year, month, 1).getDay();
-  const lastDateOfMonth = new Date(year, month + 1, 0).getDate();
-
-  const days: (number | null)[] = [];
-  for (let i = 0; i < firstDayOfMonth; i++) days.push(null);
-  for (let d = 1; d <= lastDateOfMonth; d++) days.push(d);
 
   const getDateString = (date: Date) => {
     const y = date.getFullYear();
@@ -51,14 +46,23 @@ export default function FriendCalendarPage({
     return `${y}-${m}-${d}`;
   };
 
-  const sortTodosByDate = (items: Todo[]) =>
+  const selectDateString = getDateString(selectedDate);
+
+  const firstDayOfMonth = new Date(year, month, 1).getDay();
+  const lastDateOfMonth = new Date(year, month + 1, 0).getDate();
+
+  const days: (number | null)[] = [];
+  for (let i = 0; i < firstDayOfMonth; i++) days.push(null);
+  for (let d = 1; d <= lastDateOfMonth; d++) days.push(d);
+
+  const sortTodos = (items: Todo[]) =>
     [...items].sort((a, b) => {
       const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return bTime - aTime;
     });
 
-  // 친구 정보 불러오기
+  //친구 정보 불러오기
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !userId) return;
 
@@ -66,181 +70,233 @@ export default function FriendCalendarPage({
 
     fetch(`/api/friends/${id}?userId=${userId}`)
       .then(async (res) => {
-        if (!res.ok) {
-          const message = await res.text();
-          throw new Error(message || "친구 정보를 불러오지 못했습니다.");
-        }
+        if (!res.ok) throw new Error(await res.text());
         return res.json();
       })
-      .then((data: FriendDetail) => {
-        setFriend(data);
-      })
-      .catch((err) => {
-        console.error(err);
-        setFriend(null);
-      })
+      .then((data: FriendDetail) => setFriend(data))
+      .catch(() => setFriend(null))
       .finally(() => setLoading(false));
-  }, [isLoaded, isSignedIn, userId, id]); //params.id 대신 id 사용
+  }, [isLoaded, isSignedIn, userId, id]);
 
-  // 해당 날짜의 친구 Todo 불러오기
+  //월별 투두 불러오기
   useEffect(() => {
     if (!friend) return;
 
-    const dateStr = getDateString(selectedDate);
+    fetch(`/api/todos/${friend.friendId}`)
+      .then((res) => res.json())
+      .then((all: Todo[]) => {
+        const map: Record<string, { total: number; completed: number }> = {};
 
-    fetch(`/api/todos/by-date?userId=${friend.friendId}&date=${dateStr}`)
-      .then(async (res) => {
-        if (!res.ok) {
-          const message = await res.text();
-          throw new Error(message || "친구 할 일을 불러오지 못했습니다.");
-        }
-        return res.json();
+        (Array.isArray(all) ? all : []).forEach((t) => {
+          const date = t.createdAt;
+          if (!date) return;
+
+          const monthStr = `${year}-${String(month + 1).padStart(2, "0")}`;
+          if (date.startsWith(monthStr)) {
+            if (!map[date]) {
+              map[date] = { total: 0, completed: 0 };
+            }
+            map[date].total += 1;
+            if (t.completed) map[date].completed += 1;
+          }
+        });
+
+        setMonthlyTasks(map);
       })
-      .then((data: Todo[]) => setTasks(sortTodosByDate(Array.isArray(data) ? data : [])))
-      .catch((err) => {
-        console.error("친구 투두 불러오기 실패:", err);
-        setTasks([]);
-      });
+      .catch(() => setMonthlyTasks({}));
+  }, [friend, viewDate, year, month]);
+
+  //선택 날짜 투두 불러오기
+  useEffect(() => {
+    if (!friend) return;
+
+    fetch(`/api/todos/by-date?userId=${friend.friendId}&date=${selectDateString}`)
+      .then((res) => res.json())
+      .then((data: Todo[]) => setTasks(sortTodos(Array.isArray(data) ? data : [])))
+      .catch(() => setTasks([]));
   }, [friend, selectedDate]);
 
-  if (!isLoaded || loading) {
+  if (!isLoaded || loading)
     return (
       <div className="flex items-center justify-center min-h-screen">
         Loading...
       </div>
     );
-  }
 
-  if (!isSignedIn || !userId) {
+  if (!isSignedIn) {
     window.location.href = "/";
     return null;
   }
 
-  if (!friend) {
+  if (!friend)
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-slate-500 text-sm">친구 정보를 찾을 수 없습니다.</p>
+        친구 정보를 찾을 수 없습니다.
       </div>
     );
-  }
 
-  const handlePrevMonth = () => setViewDate(new Date(year, month - 1, 1));
-  const handleNextMonth = () => setViewDate(new Date(year, month + 1, 1));
+  //월 이동
+  const handlePrev = () => setViewDate(new Date(year, month - 1, 1));
+  const handleNext = () => setViewDate(new Date(year, month + 1, 1));
 
+  
   return (
     <div className="min-h-screen bg-slate-50 flex justify-center px-4">
-      <div className="w-full max-w-5xl py-10 flex flex-col md:flex-row gap-10">
-        
-        {/* 왼쪽: 달력 */}
-        <section className="w-full md:w-1/2">
-          <header className="mb-6">
-            <p className="text-xs text-slate-400 mb-1">Friend&apos;s Calendar</p>
-            <h1 className="text-2xl font-extrabold text-slate-900">
-              {friend.friendName}님의 캘린더
+      <div className="w-full max-w-4xl py-10">
+
+        {/* 헤더 */}
+        <header className="mb-10">
+          <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-s text-slate-500 mb-3">
+            <span className="h-2 w-2 rounded-full bg-blue-500" />
+            {friend.friendName}님의 이번 달 일정
+          </div>
+
+          <div className="flex items-end justify-between">
+            <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900">
+              친구 캘린더
             </h1>
-            <p className="text-[11px] text-slate-400 mt-1">
-              친구 ID: {friend.friendId}
-            </p>
-          </header>
 
-          <div className="flex items-center justify-between mb-4 py-2">
-            <button
-              onClick={handlePrevMonth}
-              className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-slate-200 text-slate-700"
-            >
-              ◀
-            </button>
-            <p className="text-base font-bold text-slate-900">
-              {year}년 {month + 1}월
-            </p>
-            <button
-              onClick={handleNextMonth}
-              className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-slate-200 text-slate-700"
-            >
-              ▶
-            </button>
-          </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handlePrev}
+                className="px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-sm hover:bg-slate-100"
+              >
+                ◀
+              </button>
 
-          {/* 요일 */}
-          <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-500 mb-2">
-            {["일", "월", "화", "수", "목", "금", "토"].map((day) => (
-              <span key={day}>{day}</span>
-            ))}
-          </div>
+              <p className="text-lg font-semibold">
+                {year}년 {month + 1}월
+              </p>
 
-          {/* 날짜 */}
-          <div className="grid grid-cols-7 gap-2">
-            {days.map((day, idx) => {
-              const isToday =
-                day === new Date().getDate() &&
-                month === new Date().getMonth() &&
-                year === new Date().getFullYear();
-
-              const isSelected =
-                day === selectedDate.getDate() &&
-                month === selectedDate.getMonth() &&
-                year === selectedDate.getFullYear();
-
-              return (
-                <button
-                  key={idx}
-                  className={`h-10 flex items-center justify-center rounded-xl text-sm
-                    ${isToday ? "text-blue-500 font-semibold" : "text-slate-700"}
-                    ${
-                      isSelected
-                        ? "bg-slate-200 border border-slate-300"
-                        : "bg-white border border-slate-200"
-                    }
-                    ${!day ? "bg-transparent border-none" : ""}`}
-                  onClick={() =>
-                    day && setSelectedDate(new Date(year, month, day))
-                  }
-                  disabled={!day}
-                >
-                  {day || ""}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* 오른쪽: 할 일 */}
-        <section className="w-full md:w-1/2">
-          <p className="text-lg font-bold text-slate-900 mb-2 text-center md:text-left">
-            {selectedDate.toLocaleDateString()} 할 일
-          </p>
-
-          {tasks.length === 0 ? (
-            <div className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center text-slate-400 text-sm">
-              이 날에는 등록된 할 일이 없어요.
+              <button
+                onClick={handleNext}
+                className="px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-sm hover:bg-slate-100"
+              >
+                ▶
+              </button>
             </div>
-          ) : (
-            <ul className="space-y-3 max-h-[520px] overflow-y-auto pr-1 mt-4">
-              {tasks.map((task) => (
-                <li
-                  key={task._id}
-                  className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 border border-slate-200 shadow-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={task.completed}
-                    readOnly
-                    className="h-5 w-5 rounded border-slate-300 text-slate-900"
-                  />
-                  <p
-                    className={`flex-1 text-sm md:text-base leading-snug ${
-                      task.completed
-                        ? "line-through text-slate-400"
-                        : "text-slate-900"
-                    }`}
-                  >
-                    {task.title}
-                  </p>
-                </li>
+          </div>
+        </header>
+
+        <main className="flex flex-col md:flex-row gap-10">
+
+          {/* 달력 */}
+          <div className="w-full md:w-1/2 bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+
+            {/* 요일 */}
+            <div className="grid grid-cols-7 text-center text-sm font-medium text-slate-500 mb-2">
+              {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
+                <span key={d}>{d}</span>
               ))}
-            </ul>
-          )}
-        </section>
+            </div>
+
+            {/* 날짜 */}
+            <div className="grid grid-cols-7 gap-2">
+              {days.map((day, idx) => {
+                const dateStr =
+                  day &&
+                  `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+                const info = dateStr ? monthlyTasks[dateStr] : null;
+                const allDone =
+                  info?.total !== undefined &&
+                  info.total > 0 &&
+                  info.total === info.completed;
+
+                const isSelected = dateStr === selectDateString;
+
+                const today = new Date();
+                const isToday =
+                  day === today.getDate() &&
+                  month === today.getMonth() &&
+                  year === today.getFullYear();
+
+                return (
+                  <button
+                    key={idx}
+                    disabled={!day}
+                    onClick={() => day && setSelectedDate(new Date(year, month, day))}
+                    className={`
+                      h-14 flex flex-col justify-center items-center rounded-xl 
+                      border text-sm transition
+
+                      ${
+                        isSelected
+                          ? "bg-blue-600 text-white shadow-md"
+                          : "bg-white hover:bg-slate-100"
+                      }
+
+                      ${allDone ? "border-3 border-blue-500" : "border border-slate-200"}
+                    `}
+                  >
+                    <span
+                      className={`
+                        font-medium 
+                        ${
+                          isSelected
+                            ? "text-white"
+                            : isToday
+                            ? "text-blue-500"
+                            : "text-slate-700"
+                        }`}>
+                      {day ?? ""}
+                    </span>
+
+                    {info?.total !== undefined && info.total > 0 && (
+                      <span
+                        className={`text-xs ${
+                          isSelected ? "text-blue-100" : "text-blue-500"
+                        }`}
+                      >
+                        ● {info.total}
+                      </span>
+                    )}
+
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 투두 */}
+          <div className="w-full md:w-1/2">
+            <h2 className="text-lg font-semibold text-slate-800 mb-4">
+              {selectedDate.toLocaleDateString()}
+            </h2>
+
+            <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+              {tasks.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 py-10 text-center text-slate-400">
+                  이 날짜에는 등록된 할 일이 없어요.
+                </div>
+              ) : (
+                tasks.map((task) => (
+                  <div
+                    key={task._id}
+                    className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 border border-slate-200 shadow-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={task.completed}
+                      readOnly
+                      className="h-5 w-5"
+                    />
+
+                    <p
+                      className={`flex-1 text-sm ${
+                        task.completed
+                          ? "line-through text-slate-400"
+                          : "text-slate-800"
+                      }`}
+                    >
+                      {task.title}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </main>
       </div>
     </div>
   );

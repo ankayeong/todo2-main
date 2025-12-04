@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import { useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
@@ -16,7 +16,11 @@ export default function CalendarPage() {
   const { isLoaded, isSignedIn, userId } = useAuth();
   const [viewDate, setViewDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [monthlyTasks, setMonthlyTasks] = useState<Record<string, number>>({});
+
+  const [monthlyTasks, setMonthlyTasks] = useState<
+    Record<string, { total: number; completed: number }>
+  >({});
+
   const [tasks, setTasks] = useState<Todo[]>([]);
   const [input, setInput] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -48,56 +52,50 @@ export default function CalendarPage() {
       return bTime - aTime;
     });
 
-  // 월 단위 데이터 불러오기
+  // 이번 달 데이터 불러오기
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !userId) return;
 
     fetch(`/api/todos/${userId}`)
-      .then(async (res) => {
-        if (!res.ok) {
-          const message = await res.text();
-          throw new Error(message || "이번 달 할 일을 불러오는 데 실패했습니다.");
-        }
-        return res.json();
-      })
+      .then((res) => res.json())
       .then((all: Todo[]) => {
-        const map: Record<string, number> = {};
+        const map: Record<string, { total: number; completed: number }> = {};
+
         (Array.isArray(all) ? all : []).forEach((t) => {
-          if (t.createdAt?.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`)) {
-            map[t.createdAt] = (map[t.createdAt] || 0) + 1;
+          const date = t.createdAt;
+          if (!date) return;
+
+          const monthStr = `${year}-${String(month + 1).padStart(2, "0")}`;
+          if (date.startsWith(monthStr)) {
+            if (!map[date]) {
+              map[date] = { total: 0, completed: 0 };
+            }
+            map[date].total += 1;
+            if (t.completed) map[date].completed += 1;
           }
         });
+
         setMonthlyTasks(map);
       })
-      .catch((err) => {
-        console.error("Error fetching monthly todos:", err);
-        setMonthlyTasks({});
-      });
+      .catch(() => setMonthlyTasks({}));
   }, [isLoaded, isSignedIn, userId, viewDate, year, month]);
 
-  // 선택한 날짜 할 일 불러오기
+  // 선택한 날짜의 todo 불러오기
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !userId) return;
 
     fetch(`/api/todos/by-date?userId=${userId}&date=${selectDateString}`)
-      .then(async (res) => {
-        if (!res.ok) {
-          const message = await res.text();
-          throw new Error(message || "선택한 날짜의 할 일을 불러오는 데 실패했습니다.");
-        }
-        return res.json();
-      })
-      .then((data: Todo[]) => setTasks(sortTodosByDate(Array.isArray(data) ? data : [])))
-      .catch((err) => {
-        console.error("Error fetching todos by date:", err);
-        setTasks([]);
-      });
-  }, [isLoaded, isSignedIn, selectDateString, selectedDate, userId]);
+      .then((res) => res.json())
+      .then((data: Todo[]) => setTasks(sortTodosByDate(data ?? [])))
+      .catch(() => setTasks([]));
+  }, [isLoaded, isSignedIn, selectedDate, userId]);
+
+  // CRUD 처리 
 
   const addTask = () => {
     if (!input.trim() || !userId) return;
 
-     fetch("/api/todos", {
+    fetch("/api/todos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -110,10 +108,15 @@ export default function CalendarPage() {
       .then((res) => res.json())
       .then((newTodo: Todo) => {
         setTasks((prev) => [newTodo, ...prev]);
+
         setMonthlyTasks((prev) => ({
           ...prev,
-          [selectDateString]: (prev[selectDateString] || 0) + 1,
+          [selectDateString]: {
+            total: (prev[selectDateString]?.total || 0) + 1,
+            completed: prev[selectDateString]?.completed || 0,
+          },
         }));
+
         setInput("");
       });
   };
@@ -124,10 +127,14 @@ export default function CalendarPage() {
 
     fetch(`/api/todos/${id}`, { method: "DELETE" }).then(() => {
       setTasks((prev) => prev.filter((t) => t._id !== id));
+
       if (dateStr) {
         setMonthlyTasks((prev) => ({
           ...prev,
-          [dateStr]: Math.max((prev[dateStr] || 1) - 1, 0),
+          [dateStr]: {
+            total: Math.max((prev[dateStr]?.total || 1) - 1, 0),
+            completed: prev[dateStr]?.completed || 0,
+          },
         }));
       }
     });
@@ -147,6 +154,7 @@ export default function CalendarPage() {
 
   const saveEditing = (task: Todo) => {
     if (!editingText.trim()) return;
+
     fetch(`/api/todos/${task._id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -157,10 +165,12 @@ export default function CalendarPage() {
         setTasks((prev) =>
           prev.map((t) => (t._id === updated._id ? updated : t))
         );
+
         setEditingId(null);
         setEditingText("");
       });
   };
+
 
   if (!isLoaded) return <p>Loading...</p>;
   if (!isSignedIn) {
@@ -172,7 +182,7 @@ export default function CalendarPage() {
     <div className="min-h-screen bg-slate-50 flex justify-center px-4">
       <div className="w-full max-w-4xl py-10">
 
-        {/* 상단 헤더 */}
+        {/* 헤더 */}
         <header className="mb-10">
           <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-s font-medium text-slate-500 mb-3">
             <span className="h-2 w-2 rounded-full bg-blue-500" />
@@ -204,10 +214,12 @@ export default function CalendarPage() {
           </div>
         </header>
 
+        {/* 메인 */}
         <main className="flex flex-col md:flex-row gap-10">
 
           {/* 달력 */}
           <div className="w-full md:w-1/2 bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          
             <div className="grid grid-cols-7 text-center text-sm font-medium text-slate-500 mb-2">
               {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
                 <span key={d}>{d}</span>
@@ -219,25 +231,69 @@ export default function CalendarPage() {
                 const dateStr =
                   day &&
                   `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+                const info = dateStr ? monthlyTasks[dateStr] : null;
+
+                // 모두 완료한 날짜인지
+                const allDone =
+                  info?.total !== undefined &&
+                  info.total > 0 &&
+                  info.total === info.completed;
+
+                // 오늘 날짜인지
+                const today = new Date();
+                const isToday =
+                  day === today.getDate() &&
+                  month === today.getMonth() &&
+                  year === today.getFullYear();
+
+                // 선택된 날짜인지
                 const isSelected = dateStr === selectDateString;
-                const count = dateStr ? monthlyTasks[dateStr] || 0 : 0;
 
                 return (
                   <button
                     key={idx}
-                    className={`h-14 flex flex-col justify-center items-center rounded-xl 
-                      border text-sm transition
+                    disabled={!day}
+                    onClick={() => day && setSelectedDate(new Date(year, month, day))}
+                    className={`
+                      h-14 flex flex-col justify-center items-center rounded-xl 
+                      text-sm transition
+
                       ${
                         isSelected
                           ? "bg-blue-600 text-white shadow-md"
-                          : "bg-white border-slate-200 hover:bg-slate-100"
-                      }`}
-                    onClick={() => day && setSelectedDate(new Date(year, month, day))}
+                          : "bg-white hover:bg-slate-100"
+                      }
+
+                      ${
+                        allDone
+                          ? "border-2 border-blue-500"
+                          : "border border-slate-200"
+                      }
+                    `}
                   >
-                    <span className="font-medium">{day ?? ""}</span>
-                    {count > 0 && (
-                      <span className={`text-xs ${isSelected ? "text-blue-100" : "text-blue-500"}`}>
-                        ● {count}
+                    <span
+                      className={`
+                        font-medium 
+                        ${
+                          isSelected
+                            ? "text-white"
+                            : isToday
+                            ? "text-blue-500"
+                            : "text-slate-700"
+                        }
+                      `}
+                    >
+                      {day ?? ""}
+                    </span>
+
+                    {info?.total !== undefined && info.total > 0 && (
+                      <span
+                        className={`text-xs ${
+                          isSelected ? "text-blue-100" : "text-blue-500"
+                        }`}
+                      >
+                        ● {info.total}
                       </span>
                     )}
                   </button>
@@ -246,8 +302,9 @@ export default function CalendarPage() {
             </div>
           </div>
 
-          {/*오른쪽 할 일 목록*/}
+          {/*오른쪽 투두*/}
           <div className="w-full md:w-1/2">
+
             <h2 className="text-lg font-semibold text-slate-800 mb-4">
               {selectedDate.toLocaleDateString()}
             </h2>
@@ -340,6 +397,7 @@ export default function CalendarPage() {
               ))}
             </div>
           </div>
+
         </main>
       </div>
     </div>
